@@ -62,7 +62,7 @@ func getStatusCode(url string, w *sync.WaitGroup, mut *sync.Mutex, results *[]St
 	} else {
 		result.Code = resp.StatusCode
 	}
-
+	printJSON(results)
 	mut.Lock()
 	*results = append(*results, result)
 	mut.Unlock()
