@@ -20,9 +20,14 @@ func main() {
 	var wg sync.WaitGroup
 	var mut sync.Mutex
 
-	fileName := flag.String("f", "", "Name of the input file")
-	outputFileName := flag.String("o", "", "Name of the output JSON file")
+	fileName := flag.String("f", "", "[*] Name of the file to be scanned")
+	outputFileName := flag.String("o", "", "[*] Name of the output JSON file")
 	flag.Parse()
+
+	if flag.NFlag() == 0 {
+		flag.Usage()
+		return
+	}
 
 	data, err := ioutil.ReadFile(*fileName)
 	if err != nil {
