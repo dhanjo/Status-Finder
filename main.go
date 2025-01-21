@@ -2,11 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
-	"io/ioutil"
 	"net/http"
-	"strings"
 	"sync"
 )
 
@@ -17,75 +14,58 @@ type StatusResult struct {
 }
 
 func main() {
+	http.HandleFunc("/check-status", handleStatusCheck)
+	fmt.Println("Server started at :8080")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		fmt.Println("Error starting server:", err)
+	}
+}
+
+func handleStatusCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var urls []string
+	if err := json.NewDecoder(r.Body).Decode(&urls); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
 	var wg sync.WaitGroup
 	var mut sync.Mutex
-
-	fileName := flag.String("f", "", "[*] Name of the file to be scanned")
-	outputFileName := flag.String("o", "", "[*] Name of the output JSON file")
-	flag.Parse()
-
-	if flag.NFlag() == 0 {
-		flag.Usage()
-		return
-	}
-
-	data, err := ioutil.ReadFile(*fileName)
-	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return
-	}
-
-	lines := strings.Split(string(data), "\n")
 	var results []StatusResult
 
-	for _, url := range lines {
+	for _, url := range urls {
 		wg.Add(1)
-		go getStatusCode(url, &wg, &mut, &results)
+		go func(url string) {
+			defer wg.Done()
+			result := getStatusCode(url)
+			mut.Lock()
+			results = append(results, result)
+			mut.Unlock()
+		}(url)
 	}
 
 	wg.Wait()
 
-	if *outputFileName != "" {
-		if err := saveJSONToFile(results, *outputFileName); err != nil {
-			fmt.Println("Error saving JSON to file:", err)
-			return
-		}
-	} else {
-		printJSON(results)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(results); err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
 	}
-	printJSON(results)
 }
 
-func getStatusCode(url string, w *sync.WaitGroup, mut *sync.Mutex, results *[]StatusResult) {
-	defer w.Done()
+func getStatusCode(url string) StatusResult {
 	resp, err := http.Get(url)
-
 	result := StatusResult{URL: url}
 
 	if err != nil {
-		result.Error = "Error in reaching"
-	} else {
-		result.Code = resp.StatusCode
+		result.Error = "Error reaching the URL"
+		return result
 	}
-	printJSON(results)
-	mut.Lock()
-	*results = append(*results, result)
-	mut.Unlock()
-}
+	defer resp.Body.Close()
 
-func saveJSONToFile(data interface{}, fileName string) error {
-	jsonBytes, err := json.MarshalIndent(data, "", "    ")
-	if err != nil {
-		return err
-	}
-	return ioutil.WriteFile(fileName, jsonBytes, 0644)
-}
-
-func printJSON(data interface{}) {
-	jsonData, err := json.MarshalIndent(data, "", "    ")
-	if err != nil {
-		fmt.Println("Error marshaling JSON:", err)
-		return
-	}
-	fmt.Println(string(jsonData))
+	result.Code = resp.StatusCode
+	return result
 }
